@@ -14,7 +14,7 @@
 // ==/UserScript==
 
 // User variables
-const minStudyPay = 9.00;
+const minStudyPay = 10.00;
 
 var app = document.querySelector('#app');
 var studies = new Set();
@@ -80,14 +80,11 @@ observeDOM(app, function(m){
                 if (parseInt((node.textContent.split("£")[2]).split("/")[0]) >= minStudyPay) {
                     var studiesLength = studies.size;
                     studies.add(node);
-                    localStorage.setItem("temp", node);
                     if (studiesLength < studies.size) {
                         playAlertSound();
                     }
                 }
             }
-            //playAlertSound();
-            //console.log("Works");
         }
     })
 
