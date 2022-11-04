@@ -1,5 +1,5 @@
 # prolific-assist
-Userscript that adds additional functionality such as hiding elements and notifying on surveys that meet criteria to prolific. 
+Userscript that adds additional functionality like automatically disabling animations, hiding popups and notifying the user on surveys that meet a minimum pay threshold. 
 
 ## Getting Started
 ### Requirements:
@@ -7,4 +7,4 @@ Userscript that adds additional functionality such as hiding elements and notify
 
 ## Running the script
 - [Install prolific assist](https://raw.githubusercontent.com/FraserReilly/prolific-assist/main/assist.user.js)
-- Once installed you don't have to do anything, you can change the notification for surveys to a lower or higher number using the minStudyPay variable.
+- Once the script is installed you don't have to do anything. You can increase or decrease the survey pay notification threshold by adjusting minStudyPay variable to the preferred value (for reference federal minimum wage is $7.25).
