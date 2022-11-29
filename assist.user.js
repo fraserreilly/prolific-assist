@@ -97,9 +97,14 @@ waitForElm('[data-testid="blank-state-note"]').then(() => {
     }
 });
 
+// Disabled function due to bug, will be fixed in next update
 // Remove extension message
+
+/*
 waitForElm(document.evaluate("//span[text()=' No, thanks ']", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue.parentNode).then((elm) => {
     if(typeof(elm) != 'undefined' && elm != null) {
         elm.click();
     }
 });
+
+*/
