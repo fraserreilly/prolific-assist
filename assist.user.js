@@ -91,7 +91,7 @@ observeDOM(app, function(m){
 
 // Remove animation
 waitForElm('[data-testid="blank-state-note"]').then(() => {
-    var toggleAnimation = document.evaluate("//a[text()=' Disable animation ']", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+    var toggleAnimation = document.evaluate("//a[text()='Disable animation']", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
     if(typeof(toggleAnimation) != 'undefined' && toggleAnimation != null) {
         toggleAnimation.click();
     }
