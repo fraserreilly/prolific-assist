@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prolific Assist
 // @namespace    https://github.com/fraserreilly
-// @version      2.0.2
+// @version      2.0.3
 // @description  API-polling assistant for Prolific: filter, alert, one-click reserve
 // @author       fraserreilly
 // @license      GNU General Public License v3.0
@@ -327,9 +327,10 @@
             <button class="ghead" type="button"><span>Keywords</span>${CHEV}</button>
             <div class="gbody">
               <div class="row sub">Only match if title contains</div>
-              <span class="field"><input class="tl" id="pa-include" placeholder="any word, comma-separated"></span>
+              <div class="tagfield" id="pa-include"><input class="taginput" type="text" placeholder="word or phrase"></div>
               <div class="row sub">Skip if title contains</div>
-              <span class="field"><input class="tl" id="pa-exclude" placeholder="none"></span>
+              <div class="tagfield" id="pa-exclude"><input class="taginput" type="text" placeholder="word or phrase"></div>
+              <div class="row sub">Type a word or phrase, Enter to add. Each tag matches that whole phrase, not each word.</div>
             </div>
           </section>
 
@@ -557,10 +558,16 @@
     #pa-root .field { display: flex; align-items: center; gap: 4px; background: var(--field); border: 1px solid var(--field-line); border-radius: 8px; padding: 5px 9px; min-width: 92px; }
     #pa-root .field .unit { font-size: 12px; color: var(--ink-soft); }
     #pa-root .field input { border: 0; background: transparent; color: var(--ink); width: 100%; font: 600 13px/1 var(--sans); font-variant-numeric: tabular-nums; outline: none; text-align: right; }
-    #pa-root .field input.tl { text-align: left; font-weight: 500; }
     #pa-root .field.pay { min-width: 0; width: 104px; }
     #pa-root .field.pay input { text-align: left; width: 3.4em; flex: none; }
     #pa-root .field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+
+    #pa-root .tagfield { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; background: var(--field); border: 1px solid var(--field-line); border-radius: 8px; padding: 5px 7px; }
+    #pa-root .tagfield:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+    #pa-root .tag { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; background: var(--panel); border: 1px solid var(--field-line); border-radius: 999px; padding: 2px 5px 2px 9px; font-size: 11.5px; line-height: 1.4; color: var(--ink); word-break: break-word; }
+    #pa-root .tag-x { cursor: pointer; color: var(--ink-soft); font-size: 14px; line-height: 1; padding: 0 2px; border-radius: 50%; }
+    #pa-root .tag-x:hover { color: var(--hide); }
+    #pa-root .taginput { flex: 1 1 70px; min-width: 70px; border: 0; background: transparent; color: var(--ink); font: 500 13px/1.4 var(--sans); outline: none; padding: 2px 0; }
 
     #pa-root .reqicons { display: flex; gap: 8px; }
     #pa-root .reqicon { position: relative; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--field-line); background: var(--field); color: var(--ink-soft); cursor: pointer; transition: background .12s, border-color .12s, color .12s; }
@@ -825,8 +832,6 @@
     const num = (v) => (v.trim() === '' ? null : Number(v));
     byId('pa-hourly').value = settings.minHourly ?? '';
     byId('pa-total').value = settings.minTotal ?? '';
-    byId('pa-include').value = settings.includeKeywords.join(', ');
-    byId('pa-exclude').value = settings.excludeKeywords.join(', ');
     byId('pa-interval').value = settings.pollIntervalSec;
     byId('pa-volume').value = Math.round(settings.soundVolume * 100);
 
@@ -847,15 +852,53 @@
     const commit = (changedEl) => {
       settings.minHourly = num(byId('pa-hourly').value);
       settings.minTotal = num(byId('pa-total').value);
-      settings.includeKeywords = parseKeywords(byId('pa-include').value);
-      settings.excludeKeywords = parseKeywords(byId('pa-exclude').value);
       settings.pollIntervalSec = Math.max(15, Number(byId('pa-interval').value) || 30);
       settings.soundVolume = Math.min(1, Math.max(0, Number(byId('pa-volume').value) / 100 || 0));
       saveSettings(settings);
       onChange(settings);
       if (changedEl) flashSaved(changedEl);
     };
-    wrap.querySelectorAll('input:not(#pa-accountsince)').forEach((el) => el.addEventListener('change', () => commit(el)));
+    // keyword tag inputs manage their own arrays (wireTags below), so skip them here
+    wrap.querySelectorAll('input:not(#pa-accountsince):not(.taginput)').forEach((el) => el.addEventListener('change', () => commit(el)));
+
+    // Keyword fields as removable tag chips: each chip is one entry - a word OR a
+    // whole phrase - so there's no comma-guessing. Enter or comma commits the typed
+    // text, Backspace on an empty box removes the last chip, and x removes one.
+    const wireTags = (fieldId, key) => {
+      const field = byId(fieldId);
+      const input = field.querySelector('.taginput');
+      const save = () => { saveSettings(settings); onChange(settings); };
+      const render = () => {
+        field.querySelectorAll('.tag').forEach((t) => t.remove()); // rebuild chips, keep the input
+        settings[key].forEach((word, i) => {
+          const tag = document.createElement('span');
+          tag.className = 'tag';
+          tag.appendChild(document.createTextNode(word));
+          const x = document.createElement('span');
+          x.className = 'tag-x'; x.textContent = '×'; x.title = 'Remove';
+          // mousedown (not click) so the input never blur-commits before removal
+          x.addEventListener('mousedown', (e) => { e.preventDefault(); settings[key].splice(i, 1); save(); render(); });
+          tag.appendChild(x);
+          field.insertBefore(tag, input);
+        });
+      };
+      const addTyped = () => {
+        let added = false;
+        for (const w of parseKeywords(input.value)) { // parseKeywords splits commas, trims, drops empties
+          if (!settings[key].some((e) => e.toLowerCase() === w.toLowerCase())) { settings[key].push(w); added = true; }
+        }
+        input.value = '';
+        if (added) { save(); render(); flashSaved(input); }
+      };
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTyped(); }
+        else if (e.key === 'Backspace' && input.value === '' && settings[key].length) { settings[key].pop(); save(); render(); }
+      });
+      input.addEventListener('blur', addTyped); // don't lose a word typed but not entered
+      render();
+    };
+    wireTags('pa-include', 'includeKeywords');
+    wireTags('pa-exclude', 'excludeKeywords');
 
     // requirement icons cycle ignore -> require -> hide, restyling per state
     wrap.querySelectorAll('.reqicon[data-req]').forEach((btn) => {

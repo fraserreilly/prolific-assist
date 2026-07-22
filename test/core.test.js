@@ -69,6 +69,12 @@ test('exclude keywords skip', () => {
   assert.strictEqual(matcher(study({ title: 'Pilot study' }), s), false);
 });
 
+test('exclude a multi-word phrase without hiding studies that share one of its words', () => {
+  const s = { ...base(), excludeKeywords: parseKeywords('Finance app user evaluation') };
+  assert.strictEqual(matcher(study({ title: 'Finance app user evaluation' }), s), false); // whole phrase hidden
+  assert.strictEqual(matcher(study({ title: 'Great app for users' }), s), true);          // "app"/"user" alone still shown
+});
+
 test('requirement require: study must have it', () => {
   const s = { ...base(), requirements: { ...base().requirements, camera: 'require' } };
   assert.strictEqual(matcher(study({ requirements: { camera: false, microphone: false, audio: false, install: false } }), s), false);
