@@ -1,0 +1,5 @@
+{
+  "name": "prolific-assist",
+  "private": true,
+  "scripts": { "test": "node --test" }
+}

@@ -1,0 +1,6 @@
+# AI tooling / internal design notes
+.superpowers/
+docs/
+
+# Node
+node_modules/
