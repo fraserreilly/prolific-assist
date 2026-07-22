@@ -20,6 +20,15 @@ test('parseKeywords trims and drops empties', () => {
   assert.deepStrictEqual(parseKeywords(''), []);
 });
 
+const { parseUserId } = require('../assist.user.js');
+
+test('parseUserId: pulls the id from a /users/<id>/ path, ignores non-ids', () => {
+  assert.strictEqual(parseUserId('https://internal-api.prolific.com/api/v1/users/5bd6f5a1e2c4a30001a2b3c4/balance/'), '5bd6f5a1e2c4a30001a2b3c4');
+  assert.strictEqual(parseUserId('/api/v1/users/5bd6f5a1e2c4a30001a2b3c4/submissions/?page=2'), '5bd6f5a1e2c4a30001a2b3c4');
+  assert.strictEqual(parseUserId('/api/v1/studies/?users=xyz'), null); // not a /users/<id>/ segment
+  assert.strictEqual(parseUserId(''), null);
+});
+
 const { matcher } = require('../assist.user.js');
 
 const study = (over = {}) => ({

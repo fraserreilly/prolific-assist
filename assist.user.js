@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prolific Assist
 // @namespace    https://github.com/fraserreilly
-// @version      2.0
+// @version      2.0.1
 // @description  API-polling assistant for Prolific: filter, alert, one-click reserve
 // @author       fraserreilly
 // @license      GNU General Public License v3.0
@@ -26,6 +26,7 @@
 
   let activeSettings = null;                                          // live settings, for browser-only helpers
   let apiAuth = null, apiProlificId = null, apiClientVersion = null;  // auth headers captured from the app's own API calls
+  let apiUserId = null;                                              // participant id from a /users/<id>/ path (authoritative for the balance URL)
   let pollNextAt = 0, pollIntervalMs = 0;                             // next-poll timing, for the panel's countdown + progress bar
 
   // ---- pure (Node-testable) ----
@@ -46,6 +47,14 @@
 
   function parseKeywords(str) {
     return String(str || '').split(',').map((s) => s.trim()).filter(Boolean);
+  }
+
+  // Pull the participant id out of an internal-api URL path (…/users/<id>/…), used to
+  // build the balance endpoint. Returns the id or null. Anchored to the /users/ segment
+  // so query strings and other path parts can't be mistaken for an id.
+  function parseUserId(url) {
+    const m = String(url || '').match(/\/users\/([0-9a-fA-F-]{20,40})(?:[/?#]|$)/);
+    return m ? m[1] : null;
   }
 
   function matcher(study, s) {
@@ -572,7 +581,7 @@
     #pa-root .prov.on { background: var(--accent); color: var(--accent-ink); }
     #pa-root .prov.on, #pa-root .prov.on + .prov { border-left-color: transparent; } /* let the fill reach the segment edge */
     #pa-root .provnote { padding: 7px 14px 0; font-size: 11px; color: var(--ink-soft); }
-    #pa-root .ratebox { padding: 11px 14px 2px; display: grid; gap: 9px; }
+    #pa-root .ratebox { padding: 11px 14px 2px; display: grid; gap: 9px; max-height: 216px; overflow-y: auto; }
     #pa-root .ratehead { display: flex; align-items: center; gap: 10px; padding: 12px 14px 0; }
     #pa-root .dtin { background: var(--field); border: 1px solid var(--field-line); border-radius: 8px; padding: 5px 8px; color: var(--ink); font: 600 12px/1 var(--sans); color-scheme: light dark; }
     #pa-root .dtin:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
@@ -1167,6 +1176,16 @@
     } catch {}
   }
 
+  // The app's own internal-api calls carry the participant id in the path
+  // (…/users/<id>/…). Grab it so the balance endpoint uses the right id even when
+  // the x-prolific-id header is absent or isn't the same value as the path id.
+  function captureUrlId(url) {
+    try {
+      const id = parseUserId(url);
+      if (id) apiUserId = id;
+    } catch {}
+  }
+
   function captureHeadersObject(headers) {
     try {
       if (!headers) return;
@@ -1187,6 +1206,7 @@
         try {
           const url = typeof input === 'string' ? input : (input && input.url) || '';
           if (String(url).includes(API_HOST)) {
+            captureUrlId(url);
             captureHeadersObject(init && init.headers);
             if (typeof Request !== 'undefined' && input instanceof Request) captureHeadersObject(input.headers);
           }
@@ -1200,7 +1220,7 @@
       const origOpen = OrigXHR.prototype.open;
       const origSetHeader = OrigXHR.prototype.setRequestHeader;
       OrigXHR.prototype.open = function (method, url) {
-        try { this.__paUrl = url; } catch {}
+        try { this.__paUrl = url; if (String(url).includes(API_HOST)) captureUrlId(url); } catch {}
         return origOpen.apply(this, arguments);
       };
       OrigXHR.prototype.setRequestHeader = function (name, value) {
@@ -1235,9 +1255,10 @@
     },
 
     async fetchBalance() {
-      if (!apiAuth || !apiProlificId) return null;
+      const userId = apiUserId || apiProlificId;
+      if (!apiAuth || !userId) return null;
       try {
-        const res = await fetch(`https://internal-api.prolific.com/api/v1/users/${apiProlificId}/balance/`, { headers: apiHeaders() });
+        const res = await fetch(`https://internal-api.prolific.com/api/v1/users/${userId}/balance/`, { headers: apiHeaders() });
         if (!res.ok) return null;
         return await res.json();
       } catch {
@@ -1338,6 +1359,12 @@
     try {
       const now = Date.now();
       const bal = await apiClient.fetchBalance();
+      // Paint the balance the moment it lands - the submissions history below can be
+      // many sequential pages, and available/pending shouldn't wait on it. Keep any
+      // subs from the previous poll so the period rows don't flash to zero meanwhile.
+      const prev = lastEarnings || { subs: [], totalByCurrency: null, totalEarnedMinor: 0 };
+      lastEarnings = { ...prev, bal, now };
+      paintEarnings();
       // fetch back to the earliest period we display (tax year is usually earliest)
       const since = Math.min(startOfMonth(now), startOfYear(now), startOfTaxYear(now));
       const { subs, totalEarnedMinor, totalByCurrency } = await apiClient.fetchSubmissions(since);
@@ -1604,7 +1631,7 @@
   if (typeof document !== 'undefined') main();
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      defaultSettings, parseKeywords, matcher, normalizeStudy,
+      defaultSettings, parseKeywords, parseUserId, matcher, normalizeStudy,
       parseBonus, normalizeSubmission, providerTable, rateFor, toGBPminor, submissionGBPminor, allTimeGBPminor, earningsSummary,
     };
   }
