@@ -261,6 +261,28 @@ test('earningsSummary: tax year (Apr 6) excludes pre-April earnings that calenda
   assert.strictEqual(s.taxYearMinor, 500); // only May counts in the 2026/27 tax year
 });
 
+const { filterFeed } = require('../assist.user.js');
+
+test('filterFeed: keeps only passing studies, newest-first, and counts the hidden', () => {
+  // feed is published_at ascending; s3 is newest. minHourly hides s2.
+  const s1 = study({ id: 's1', hourlyRate: 20 });
+  const s2 = study({ id: 's2', hourlyRate: 5 });
+  const s3 = study({ id: 's3', hourlyRate: 15 });
+  const r = filterFeed([s1, s2, s3], { ...base(), minHourly: 10 });
+  assert.deepStrictEqual(r.shown.map((s) => s.id), ['s3', 's1']); // reversed to newest-first, s2 excluded
+  assert.strictEqual(r.hidden, 1);
+});
+
+test('filterFeed: no filters shows all, hides none; empty feed is empty', () => {
+  const feed = [study({ id: 'a' }), study({ id: 'b' })];
+  const r = filterFeed(feed, base());
+  assert.deepStrictEqual(r.shown.map((s) => s.id), ['b', 'a']);
+  assert.strictEqual(r.hidden, 0);
+  const e = filterFeed([], base());
+  assert.deepStrictEqual(e.shown, []);
+  assert.strictEqual(e.hidden, 0);
+});
+
 test('earningsSummary: no worked time -> null rate', () => {
   const now = Date.now();
   const s = earningsSummary(

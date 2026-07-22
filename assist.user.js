@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prolific Assist
 // @namespace    https://github.com/fraserreilly
-// @version      2.0.1
+// @version      2.0.2
 // @description  API-polling assistant for Prolific: filter, alert, one-click reserve
 // @author       fraserreilly
 // @license      GNU General Public License v3.0
@@ -273,7 +273,7 @@
       <div class="pa-prog" id="pa-prog"><i></i></div>
 
       <div class="matches">
-        <div class="mlabel">Matches <span class="mcount" id="pa-mcount">0</span>
+        <div class="mlabel">Matches <span class="mcount" id="pa-mcount">0</span><span class="mcount mhidden" id="pa-mhidden" title="Available studies your filters hide" hidden>0</span>
           <select class="msort" id="pa-sort" title="Sort matches">
             <option value="newest">Newest</option>
             <option value="rate">£/hr</option>
@@ -398,6 +398,7 @@
             <button class="prov" type="button" data-prov="PayPal">PayPal</button>
           </div>
           <div class="provnote"></div>
+          <div class="allowance" id="pa-allowance-cur" style="padding:2px 14px 0"></div>
           <div class="ratehead"><span class="grow">Earning since</span><input type="date" id="pa-accountsince" class="dtin"></div>
           <div class="ratebox" id="pa-rate-editor"></div>
           <div class="sub" style="padding:2px 14px 13px">1 USD in &pound; for the selected source. Set &ldquo;Earning since&rdquo; to your first year on Prolific to trim the list. Edits override the built-in value and save to this browser.</div>
@@ -506,6 +507,7 @@
     #pa-root .matches { border-bottom: 1px solid var(--line); }
     #pa-root .mlabel { font: 700 10.5px/1 var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-soft); padding: 11px 12px 6px 14px; display: flex; gap: 7px; align-items: center; }
     #pa-root .mcount { background: var(--go-soft); color: var(--go); border-radius: 999px; padding: 1px 7px; font-size: 10px; font-weight: 700; }
+    #pa-root .mcount.mhidden { background: var(--field); color: var(--ink-soft); border: 1px solid var(--field-line); }
     #pa-root .msort { margin-left: auto; font: 600 10px/1 var(--sans); color: var(--ink-soft); background: var(--field); border: 1px solid var(--field-line); border-radius: 6px; padding: 4px 6px; cursor: pointer; }
     #pa-root .mlist { max-height: 236px; overflow-y: auto; padding: 0 12px 4px; display: grid; gap: 8px; }
     #pa-root .mcard { background: var(--field); border: 1px solid var(--field-line); border-left: 3px solid var(--go); border-radius: 9px; padding: 9px 10px; display: grid; gap: 7px; }
@@ -1075,6 +1077,9 @@
   // ---- matches: docked, sortable, read-only list in the panel. Newest-first,
   // capped at 50, and shared across tabs. ----
   let matches = [];
+  let lastStudies = [];             // last poll's full feed, so a filter change re-derives matches without waiting for a re-poll
+  let hiddenCount = 0;              // feed studies the current filters exclude (grey badge). ponytail: leader-local; follower tabs show none, sync via poll-state if it ever matters
+  let polled = false;               // set once the first poll lands, so applyFilters knows lastStudies is real (an empty feed then means zero matches, not "not yet")
   let earningsPrimed = false;       // refresh earnings once the auth token first becomes available
   let exporting = false;            // guards the on-demand CSV export (history fetch is heavy, so only ever runs on click)
   let selectedTaxYearStart = null;  // which UK tax year the Tax-year row shows (default = current)
@@ -1141,6 +1146,29 @@
     `;
   }
 
+  // Pure: split a feed (published_at asc) into the studies that pass the filter,
+  // newest-first, plus how many the filter hides. Kept pure so it's unit-testable.
+  function filterFeed(studies, settings) {
+    const shown = studies.filter((s) => matcher(s, settings));
+    return { shown: shown.reverse(), hidden: studies.length - shown.length };
+  }
+
+  // Rebuild the shown matches + hidden count from the last feed under the current
+  // settings, then persist and repaint. Called by the poll and by every filter
+  // change, so tightening a filter drops stale matches immediately (not next poll).
+  function applyFilters() {
+    if (polled) {
+      const r = filterFeed(lastStudies, activeSettings);
+      matches = r.shown;
+      hiddenCount = r.hidden;
+    } else {
+      matches = matches.filter((s) => matcher(s, activeSettings)); // pre-poll: can only prune what we already have
+    }
+    if (matches.length > 50) matches.length = 50;
+    saveMatchesStore();
+    renderMatches();
+  }
+
   function renderMatches() {
     const mlist = document.getElementById('pa-mlist');
     if (!mlist) return; // panel not built yet
@@ -1156,6 +1184,8 @@
     mlist.innerHTML = sorted.map((s) => matchCardHTML(s)).join('');
     const count = document.getElementById('pa-mcount');
     if (count) count.textContent = String(matches.length);
+    const hid = document.getElementById('pa-mhidden');
+    if (hid) { hid.textContent = String(hiddenCount); hid.hidden = hiddenCount <= 0; }
     const empty = document.getElementById('pa-empty');
     if (empty) empty.hidden = matches.length > 0;
     updateShowMoreUI();
@@ -1376,8 +1406,9 @@
   }
 
   // UK trading allowance: the first £1,000 of miscellaneous/trading income per tax
-  // year is tax-free and needs no Self Assessment. We watch it against the HMRC
-  // total (the tax basis), whatever provider the display is set to.
+  // year is tax-free and needs no Self Assessment. HMRC lets you convert with one
+  // consistent method of your choosing, so we watch it on whatever provider you
+  // report with (the Currency tab) rather than forcing one source.
   const TRADING_ALLOWANCE_MINOR = 100000;
 
   // Repaint the earnings rows from lastEarnings under the currently-selected provider.
@@ -1417,17 +1448,18 @@
     else if (submissionsCache.has(selectedTaxYearStart)) setText('pa-e-taxyear', gbp(periodTotalMinor(submissionsCache.get(selectedTaxYearStart), selectedTaxYearStart, taxYearEndMs(selectedTaxYearStart), fx)));
     setText('pa-e-alltime', gbp(allTimeMinor));
 
-    // £1,000 allowance gauge - always the HMRC current-tax-year total, regardless of
-    // the display provider, since that's the figure HMRC counts.
-    const alEl = document.getElementById('pa-allowance');
-    if (alEl) {
-      const hmrcFx = buildFx(bal, { rateProvider: 'HMRC', rateOverrides: (activeSettings || {}).rateOverrides });
-      const hmrcTax = earningsSummary(subs, hmrcFx, now).taxYearMinor;
-      const over = hmrcTax >= TRADING_ALLOWANCE_MINOR;
-      alEl.textContent = over
-        ? `Over £1,000 allowance (${gbp(hmrcTax)}) - Self Assessment may apply`
-        : `${gbp(hmrcTax)} of £1,000 tax-free allowance`;
-      alEl.className = 'allowance' + (over ? ' over' : hmrcTax >= 0.8 * TRADING_ALLOWANCE_MINOR ? ' near' : '');
+    // £1,000 allowance gauge - current tax year on the selected provider (sum already
+    // uses it). Painted on both the Earnings and Currency tabs so switching provider
+    // shows its effect where you pick it.
+    const taxMinor = sum.taxYearMinor;
+    const over = taxMinor >= TRADING_ALLOWANCE_MINOR;
+    const alText = over
+      ? `Over £1,000 allowance (${gbp(taxMinor)}, ${fx.provider}) - Self Assessment may apply`
+      : `${gbp(taxMinor)} of £1,000 tax-free allowance (${fx.provider})`;
+    const alClass = 'allowance' + (over ? ' over' : taxMinor >= 0.8 * TRADING_ALLOWANCE_MINOR ? ' near' : '');
+    for (const id of ['pa-allowance', 'pa-allowance-cur']) {
+      const el = document.getElementById(id);
+      if (el) { el.textContent = alText; el.className = alClass; }
     }
 
     setFooter('Today ' + gbp(sum.todayMinor) + (rateSuffix ? ` <small>${rateSuffix}</small>` : ''), 'ok');
@@ -1555,18 +1587,15 @@
       return;
     }
 
-    // the list mirrors what's currently available: drop matches that have filled
-    // or expired (no longer in the feed), and add any new ones
-    const currentIds = new Set(studies.map((s) => s.id));
-    matches = matches.filter((m) => currentIds.has(m.id));
+    // alert once per newly-seen matching study, then rebuild the list + hidden count
+    // from this feed under the current filters. Rebuilding (rather than merging) is
+    // what makes filled/expired and now-excluded studies both drop out.
+    polled = true;
+    lastStudies = studies;
     for (const study of studies) {
-      if (!matcher(study, settings)) continue;
-      if (!matches.some((m) => m.id === study.id)) matches.unshift(study);
-      if (!isSeen(study.id)) { markSeen(study.id); bumpSeenToday(); playAlert(currentVolume()); } // alert + count once per study
+      if (matcher(study, settings) && !isSeen(study.id)) { markSeen(study.id); bumpSeenToday(); playAlert(currentVolume()); } // alert + count once per study
     }
-    if (matches.length > 50) matches.length = 50;
-    saveMatchesStore();
-    renderMatches();
+    applyFilters();
     updateStats();
     setLive('ok');
     // populate earnings/footer as soon as a working token exists, rather than
@@ -1605,7 +1634,7 @@
       const ps = readStore(POLLSTATE_KEY);
       if (ps) { pollNextAt = ps.nextAt || 0; if (ps.intervalMs) pollIntervalMs = ps.intervalMs; if (ps.live) liveKind = ps.live; }
       const loop = runLoop(activeSettings);
-      buildPanel(activeSettings, () => { saveSettings(activeSettings); loop.reschedule(); });
+      buildPanel(activeSettings, () => { saveSettings(activeSettings); loop.reschedule(); applyFilters(); });
       refreshEarnings();
       setInterval(refreshEarnings, 300000);
       // stay in sync with the leader tab: another tab updating matches/poll-state re-renders here
@@ -1632,7 +1661,7 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       defaultSettings, parseKeywords, parseUserId, matcher, normalizeStudy,
-      parseBonus, normalizeSubmission, providerTable, rateFor, toGBPminor, submissionGBPminor, allTimeGBPminor, earningsSummary,
+      parseBonus, normalizeSubmission, providerTable, rateFor, toGBPminor, submissionGBPminor, allTimeGBPminor, earningsSummary, filterFeed,
     };
   }
 })();
