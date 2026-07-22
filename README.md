@@ -13,7 +13,7 @@ It's read-only — it never reserves studies or acts on your account.
 1. Install [Tampermonkey](https://www.tampermonkey.net/) (or another userscript manager).
 2. [Install Prolific Assist](https://raw.githubusercontent.com/fraserreilly/prolific-assist/main/assist.user.js).
 
-Open Prolific and the panel appears. All settings live in the panel and persist in your browser —
+Open Prolific and the panel appears. All settings live in the panel and persist in your browser -
 there's nothing to edit in code.
 
 ## Development
